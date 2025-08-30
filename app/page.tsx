@@ -37,6 +37,12 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function addDaysISO(baseISO: string, days: number) {
+  const d = new Date(baseISO + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function daysUntil(dateISO: string): number {
   const base = new Date(new Date().toDateString()).getTime(); // today 00:00
   const tgt = new Date(dateISO + "T00:00:00").getTime();
@@ -86,17 +92,51 @@ function badgeStyle(days: number): React.CSSProperties {
 export default function Home() {
   // modal
   const [showHint, setShowHint] = useState(false);
+  // init from localStorage (seed two samples on first visit)
   useEffect(() => {
+    const existing = loadFridge();
+    if (existing && existing.length > 0) {
+      setItems(existing);
+      return;
+    }
+
+    // 首次进入：塞两条示例
+    const today = todayISO();
+    const samples: Ingredient[] = [
+      {
+        id: randId(),
+        name: "Milk",
+        qty: 300,
+        unit: "ml",
+        category: "Dairy",
+        expiry: today,                 // 今天到期
+        addedOn: today,
+      },
+      {
+        id: randId(),
+        name: "Broccoli",
+        qty: 200,
+        unit: "g",
+        category: "Veggie",
+        expiry: addDaysISO(today, 2),  // 2 天后到期
+        addedOn: today,
+      },
+    ];
+
+    setItems(samples);
+    saveFridge(samples);
+
+    // 如果你有弹窗（showHint / MODAL_KEY），首访也显示一次
     try {
       const seen = localStorage.getItem(MODAL_KEY);
-      if (!seen) setShowHint(true);
+      if (!seen) {
+        setShowHint(true);  // 你页面里已定义 showHint / setShowHint
+      }
     } catch { }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowHint(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+
+
   function closeHint(persist = true) {
     if (persist) {
       try {
@@ -172,7 +212,7 @@ export default function Home() {
       }));
 
       const payload: MealGenInput = {
-        people: 1, // single user
+        people: 1,
         mealTime: getMealTime(),
         fridge,
       };
@@ -490,14 +530,14 @@ export default function Home() {
                   placeItems: "center",
                 }}
               >
-                <span style={{ fontSize: 18 }}>🥬</span>
+                <span style={{ fontSize: 18 }}>🌍</span>
               </div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1F5123" }}>Heads up!</h3>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1F5123" }}>Welcome to Smart MealPlanet!</h3>
             </div>
 
             <p style={{ marginTop: 6, marginBottom: 14, color: "#374151", lineHeight: 1.6 }}>
-              The items you see now are <b>just examples</b>. Feel free to <b>delete</b> anything and
-              <b> add</b> your own groceries. Your list is saved locally on this device.
+              The items you see now are <b>just examples groceries</b> . Feel free to <b>delete</b> the examples and
+              <b> add</b> your own groceries. Your list is saved locally on your device.
             </p>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>

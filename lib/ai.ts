@@ -102,7 +102,6 @@ export async function generateMealPlanAI(items: SimpleItem[], opts: AIOptions) {
     }
   };
 
-  // 按官方 SDK 使用：通过 generationConfig 设置结构化输出
   const model = genAI.getGenerativeModel({
     model: modelId,
     generationConfig: {
@@ -123,26 +122,20 @@ export async function generateMealPlanAI(items: SimpleItem[], opts: AIOptions) {
     throw new AIUnavailableError("model_error", e?.message);
   }
 
-  // 不同版本 SDK 的读取方式兜底
   let text = "";
   try {
-    // 新版/常见：.response.text()
-    // @ts-ignore
+ 
     if (typeof result?.response?.text === "function") {
-      // @ts-ignore
       text = String(result.response.text() || "");
     } else if (result && "text" in result) {
-      // 有的版本直接挂 text
-      // @ts-ignore
+
       text = String(result.text || "");
     } else {
-      // 兜底拼接 candidates 的 parts
-      // @ts-ignore
+
       const parts = result?.response?.candidates?.[0]?.content?.parts ?? [];
       text = parts.map((p: any) => p?.text || "").join("");
     }
   } catch {
-    // 忽略，交给下面的空串判断
   }
 
   if (!text) throw new AIUnavailableError("model_error", "Gemini returned empty content");

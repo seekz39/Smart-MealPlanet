@@ -5,12 +5,12 @@ node_modules/
 .next/
 out/
 
-# local runtime data (你的本地冰箱数据)
+# local runtime data
 data/
 
-# env files (只提交 .env.example)
+# env
 .env
-.env.*.local
+.env.local
 !.env.example
 
 # logs
