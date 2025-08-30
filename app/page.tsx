@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 
 // ----- Types -----
 type Ingredient = {
@@ -89,7 +90,7 @@ export default function Home() {
     try {
       const seen = localStorage.getItem(MODAL_KEY);
       if (!seen) setShowHint(true);
-    } catch {}
+    } catch { }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setShowHint(false);
     };
@@ -100,7 +101,7 @@ export default function Home() {
     if (persist) {
       try {
         localStorage.setItem(MODAL_KEY, "1");
-      } catch {}
+      } catch { }
     }
     setShowHint(false);
   }
@@ -198,20 +199,24 @@ export default function Home() {
   return (
     <div style={{ minHeight: "100vh", background: "#FFF7E1", display: "flex", flexDirection: "column" }}>
       {/* top title */}
-      <header style={{ padding: "32px 0" }}>
-        <h1
-          style={{
-            textAlign: "center",
-            fontSize: "48px",
-            fontWeight: 900,
-            letterSpacing: "-0.02em",
-            color: "#3A7F3C",
-            textShadow: "0 1px 0 rgba(0,0,0,0.03)",
-          }}
-        >
-          Smart MealPlanet
-        </h1>
+      <header style={{ padding: "28px 0" }}>
+        <div style={{ display: "grid", placeItems: "center" }}>
+          <Image
+            src="/assets/title.png"
+            alt="Smart MealPlanet"
+            width={720}              // adjust to your asset
+            height={200}             // aspect ratio placeholder
+            priority
+            style={{
+              width: "min(90vw, 820px)", // responsive max
+              height: "auto",
+              display: "block",
+              filter: "drop-shadow(0 1px 0 rgba(0,0,0,0.03))",
+            }}
+          />
+        </div>
       </header>
+
 
       {/* main */}
       <main
@@ -399,103 +404,27 @@ export default function Home() {
               position: "relative",
               background: "rgba(255,255,255,0.9)",
               borderRadius: 24,
-              padding: 16,
+              padding: 8,
               border: "1px solid #CDE5C6",
               boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
               minHeight: 220,
+              display: "grid",
+              placeItems: "center",
             }}
           >
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 16 }}>
-              {/* cartoon */}
-              <div
-                style={{
-                  position: "relative",
-                  height: 144,
-                  width: 104,
-                  borderRadius: 16,
-                  background: "#E7F6E2",
-                  border: "2px solid #7BC67E",
-                  boxShadow: "inset 0 2px 6px rgba(0,0,0,0.06)",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    insetInlineStart: "50%",
-                    top: 0,
-                    bottom: 0,
-                    width: 1,
-                    background: "rgba(123,198,126,0.6)",
-                    transform: "translateX(-50%)",
-                  }}
-                />
-                {/* eyes */}
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 32,
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    display: "flex",
-                    gap: 12,
-                  }}
-                >
-                  <span style={{ height: 12, width: 12, background: "#2F6E34", borderRadius: 999 }} />
-                  <span style={{ height: 12, width: 12, background: "#2F6E34", borderRadius: 999 }} />
-                </div>
-                {/* smile */}
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 56,
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    height: 4,
-                    width: 56,
-                    borderRadius: 999,
-                    background: "#2F6E34",
-                  }}
-                />
-                {/* handle */}
-                <div style={{ position: "absolute", right: 8, top: 36, height: 40, width: 6, background: "#7BC67E", borderRadius: 8 }} />
-                {/* feet */}
-                <div style={{ position: "absolute", bottom: -4, left: 16, height: 8, width: 24, background: "#7BC67E", borderRadius: 4 }} />
-                <div style={{ position: "absolute", bottom: -4, right: 16, height: 8, width: 24, background: "#7BC67E", borderRadius: 4 }} />
-              </div>
-
-              {/* bubble */}
-              <div style={{ position: "relative", flex: 1 }}>
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #CDE5C6",
-                    borderRadius: 16,
-                    padding: 12,
-                    color: "#1F5123",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-                    lineHeight: 1.5,
-                    fontSize: 14,
-                  }}
-                >
-                  Hi! I’m your <b>Fridge Buddy</b>. Add new groceries anytime. When you’re
-                  hungry, click <b>Generate Plan</b> — I’ll use items that are about to expire first.
-                </div>
-                <div
-                  style={{
-                    position: "absolute",
-                    left: -8,
-                    top: 36,
-                    width: 14,
-                    height: 14,
-                    background: "#fff",
-                    transform: "rotate(45deg)",
-                    borderLeft: "1px solid #CDE5C6",
-                    borderTop: "1px solid #CDE5C6",
-                  }}
-                />
-              </div>
-            </div>
+            <Image
+              src="/assets/fridge.png"
+              alt="Smart Fridge"
+              width={480}
+              height={480}
+              style={{
+                maxWidth: "100%",
+                height: "auto",
+                display: "block",
+              }}
+            />
           </div>
+
 
           {/* generate button */}
           <div style={{ marginTop: "auto" }}>
