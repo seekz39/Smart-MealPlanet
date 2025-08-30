@@ -2,49 +2,50 @@
 import OpenAI from "openai";
 
 const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY!,
 });
 
-type ItemLite = {
+export type SimpleItem = {
   id: string;
   name: string;
-  quantity?: number | null;
-  unit?: string | null;
-  category?: string | null;
   storage: "FRIDGE" | "FREEZER" | "PANTRY";
-  expiryDate: string; // ISO
+  expiryDate: string;          // ISO
+  quantity: number | null;
+  unit: string | null;
+  category: string | null;
 };
 
-type Constraints = {
+export type AIOptions = {
   mealType: "breakfast" | "lunch" | "dinner" | "supper" | "snack";
   servings: number;
   maxReadyMinutes: number;
-  timezone: string;
-  diet: string;
-  exclude: string[];
+  timezone?: string;
+  diet?: "none" | "vegan" | "vegetarian" | "pescatarian";
+  exclude?: string[];
 };
 
-export async function generateMealPlanAI(items: ItemLite[], c: Constraints) {
+export async function generateMealPlanAI(
+  items: SimpleItem[],
+  opts: AIOptions
+) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
-  // 结构化输出的 JSON Schema（严格）
-  const schema = {
-    name: "meal_plan",
-    strict: true,
+  // 让模型输出固定 JSON 结构
+  const schema: any = {
+    name: "MealPlan",
     schema: {
       type: "object",
-      additionalProperties: false,
       required: ["mealType", "readyInMinutes", "servings", "recipes"],
       properties: {
-        mealType: { type: "string", enum: ["breakfast","lunch","dinner","supper","snack"] },
-        readyInMinutes: { type: "integer" },
-        servings: { type: "integer" },
+        mealType: { type: "string" },
+        readyInMinutes: { type: "number" },
+        servings: { type: "number" },
         recipes: {
           type: "array",
+          minItems: 1,
           items: {
             type: "object",
-            additionalProperties: false,
-            required: ["title","steps","ingredientsUsed","ingredientsToBuy"],
+            required: ["title", "steps", "ingredientsUsed"],
             properties: {
               title: { type: "string" },
               description: { type: "string" },
@@ -53,8 +54,7 @@ export async function generateMealPlanAI(items: ItemLite[], c: Constraints) {
                 type: "array",
                 items: {
                   type: "object",
-                  additionalProperties: false,
-                  required: ["id","name"],
+                  required: ["name"],
                   properties: {
                     id: { type: "string" },
                     name: { type: "string" },
@@ -67,7 +67,6 @@ export async function generateMealPlanAI(items: ItemLite[], c: Constraints) {
                 type: "array",
                 items: {
                   type: "object",
-                  additionalProperties: false,
                   required: ["name"],
                   properties: {
                     name: { type: "string" },
@@ -77,48 +76,54 @@ export async function generateMealPlanAI(items: ItemLite[], c: Constraints) {
                   }
                 }
               },
-              notes: { type: "string" },
-              nutrition: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  kcal: { type: "number" },
-                  protein_g: { type: "number" },
-                  carbs_g: { type: "number" },
-                  fat_g: { type: "number" }
-                }
-              }
+              notes: { type: "string" }
             }
           }
         }
       }
+    },
+    strict: true
+  };
+
+  const system =
+    "You are a helpful meal planner. Prefer items that expire sooner. Keep recipes simple and feasible in home kitchens.";
+
+  const user = {
+    pantry: items,
+    request: {
+      mealType: opts.mealType,
+      servings: opts.servings,
+      maxReadyMinutes: opts.maxReadyMinutes,
+      timezone: opts.timezone ?? "UTC",
+      diet: opts.diet ?? "none",
+      exclude: opts.exclude ?? []
     }
-  } as const;
+  };
 
-  const sys = [
-    "You are a culinary planner that minimizes food waste.",
-    "Use items expiring soon first. Avoid allergens in exclude.",
-    "Return JSON only that matches the schema. Keep steps concise."
-  ].join(" ");
-
-  const prompt = `
-Generate ONE ${c.mealType} meal plan for right now in timezone ${c.timezone}.
-Constraints: servings=${c.servings}, ready<=${c.maxReadyMinutes}min, diet=${c.diet}, exclude=${JSON.stringify(c.exclude)}.
-The user’s 'virtual fridge' items (with expiry ISO): ${JSON.stringify(items)}
-Return only JSON following the provided schema.
-`.trim();
-
+  // 使用 Responses API（SDK v4）
   const resp = await client.responses.create({
     model,
     input: [
-      { role: "system", content: sys },
-      { role: "user", content: prompt }
+      { role: "system", content: system },
+      { role: "user", content: JSON.stringify(user) }
     ],
-    response_format: { type: "json_schema", json_schema: schema }
+    response_format: { type: "json_schema", json_schema: schema },
+    temperature: 0.6
   });
 
-  // SDK 会把文本汇总在 output_text（是个字符串，按我们要求应是 JSON）
-  const text = (resp as any).output_text as string;
-  const parsed = JSON.parse(text); // 若不符合会抛错
-  return parsed;
+  // 取 JSON 文本
+  const text =
+    (resp.output_text ?? "").trim() ||
+    (resp.output?.[0] as any)?.content?.[0]?.text ||
+    "{}";
+
+  const data = JSON.parse(text);
+
+  // 返回与后端期望结构一致
+  return {
+    mealType: data.mealType,
+    readyInMinutes: data.readyInMinutes,
+    servings: data.servings,
+    recipes: data.recipes
+  };
 }

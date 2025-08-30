@@ -176,7 +176,7 @@ export default function Home() {
         fridge,
       };
 
-      const res = await fetch("/api/meal/generate", {
+      const res = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
