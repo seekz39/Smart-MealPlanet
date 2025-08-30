@@ -1,9 +1,5 @@
 // lib/ai.ts
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export type SimpleItem = {
   id: string;
@@ -24,69 +20,75 @@ export type AIOptions = {
   exclude?: string[];
 };
 
-export async function generateMealPlanAI(
-  items: SimpleItem[],
-  opts: AIOptions
-) {
-  const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+export class AIUnavailableError extends Error {
+  constructor(public reason: "missing_key" | "model_error" | "other", message?: string) {
+    super(message || reason);
+    this.name = "AIUnavailableError";
+  }
+}
 
-  // 让模型输出固定 JSON 结构
-  const schema: any = {
-    name: "MealPlan",
-    schema: {
-      type: "object",
-      required: ["mealType", "readyInMinutes", "servings", "recipes"],
-      properties: {
-        mealType: { type: "string" },
-        readyInMinutes: { type: "number" },
-        servings: { type: "number" },
-        recipes: {
-          type: "array",
-          minItems: 1,
-          items: {
-            type: "object",
-            required: ["title", "steps", "ingredientsUsed"],
-            properties: {
-              title: { type: "string" },
-              description: { type: "string" },
-              steps: { type: "array", items: { type: "string" } },
-              ingredientsUsed: {
-                type: "array",
-                items: {
-                  type: "object",
-                  required: ["name"],
-                  properties: {
-                    id: { type: "string" },
-                    name: { type: "string" },
-                    amount: { type: "number" },
-                    unit: { type: "string" }
-                  }
+export async function generateMealPlanAI(items: SimpleItem[], opts: AIOptions) {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new AIUnavailableError("missing_key", "GOOGLE_API_KEY missing");
+
+  const modelId = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  console.log("[/api/plan] Gemini model:", modelId, "Key?", !!apiKey);
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+
+  // 结构化 JSON 输出（Gemini 的 responseSchema）
+  const responseSchema = {
+    type: "object",
+    required: ["mealType", "readyInMinutes", "servings", "recipes"],
+    properties: {
+      mealType: { type: "string" },
+      readyInMinutes: { type: "number" },
+      servings: { type: "number" },
+      recipes: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["title", "steps", "ingredientsUsed"],
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            steps: { type: "array", items: { type: "string" } },
+            ingredientsUsed: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["name"],
+                properties: {
+                  id: { type: "string" },
+                  name: { type: "string" },
+                  amount: { type: "number" },
+                  unit: { type: "string" }
                 }
-              },
-              ingredientsToBuy: {
-                type: "array",
-                items: {
-                  type: "object",
-                  required: ["name"],
-                  properties: {
-                    name: { type: "string" },
-                    amount: { type: "number" },
-                    unit: { type: "string" },
-                    reason: { type: "string" }
-                  }
+              }
+            },
+            ingredientsToBuy: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["name"],
+                properties: {
+                  name: { type: "string" },
+                  amount: { type: "number" },
+                  unit: { type: "string" },
+                  reason: { type: "string" }
                 }
-              },
-              notes: { type: "string" }
-            }
+              }
+            },
+            notes: { type: "string" }
           }
         }
       }
-    },
-    strict: true
-  };
+    }
+  } as const;
 
   const system =
-    "You are a helpful meal planner. Prefer items that expire sooner. Keep recipes simple and feasible in home kitchens.";
+    "You are a helpful zero-waste meal planner. Prefer items that expire sooner. Keep recipes simple for home kitchens. Return ONLY JSON.";
 
   const user = {
     pantry: items,
@@ -100,26 +102,61 @@ export async function generateMealPlanAI(
     }
   };
 
-  // 使用 Responses API（SDK v4）
-  const resp = await client.responses.create({
-    model,
-    input: [
-      { role: "system", content: system },
-      { role: "user", content: JSON.stringify(user) }
-    ],
-    response_format: { type: "json_schema", json_schema: schema },
-    temperature: 0.6
+  // 按官方 SDK 使用：通过 generationConfig 设置结构化输出
+  const model = genAI.getGenerativeModel({
+    model: modelId,
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema
+    }
   });
 
-  // 取 JSON 文本
-  const text =
-    (resp.output_text ?? "").trim() ||
-    (resp.output?.[0] as any)?.content?.[0]?.text ||
-    "{}";
+  const prompt = `${system}\n\nUSER:\n${JSON.stringify(user)}`;
 
-  const data = JSON.parse(text);
+  let result;
+  try {
+    result = await model.generateContent([
+      { role: "user", parts: [{ text: prompt }] }
+    ]);
+  } catch (e: any) {
+    console.error("[/api/plan] Gemini call failed:", e?.message || e);
+    throw new AIUnavailableError("model_error", e?.message);
+  }
 
-  // 返回与后端期望结构一致
+  // 不同版本 SDK 的读取方式兜底
+  let text = "";
+  try {
+    // 新版/常见：.response.text()
+    // @ts-ignore
+    if (typeof result?.response?.text === "function") {
+      // @ts-ignore
+      text = String(result.response.text() || "");
+    } else if (result && "text" in result) {
+      // 有的版本直接挂 text
+      // @ts-ignore
+      text = String(result.text || "");
+    } else {
+      // 兜底拼接 candidates 的 parts
+      // @ts-ignore
+      const parts = result?.response?.candidates?.[0]?.content?.parts ?? [];
+      text = parts.map((p: any) => p?.text || "").join("");
+    }
+  } catch {
+    // 忽略，交给下面的空串判断
+  }
+
+  if (!text) throw new AIUnavailableError("model_error", "Gemini returned empty content");
+
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}$/);
+    data = match ? JSON.parse(match[0]) : {};
+  }
+
+  console.log("[/api/plan] Gemini OK:", data?.mealType, "•", data?.recipes?.[0]?.title ?? "(no title)");
+
   return {
     mealType: data.mealType,
     readyInMinutes: data.readyInMinutes,
