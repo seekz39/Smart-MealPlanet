@@ -1,12 +1,595 @@
-// app/page.tsx
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+// ----- Types -----
+type Ingredient = {
+  id: string;
+  name: string;
+  qty: number;
+  unit: string;
+  category: "Veggie" | "Protein" | "Bakery" | "Dairy" | "Spice" | "Other";
+  expiry: string; // YYYY-MM-DD
+  addedOn: string; // YYYY-MM-DD
+};
+
+type FridgeItemForAPI = {
+  id: string;
+  name: string;
+  qty: number;
+  unit: string;
+  category: Ingredient["category"];
+  expiresInDays: number;
+};
+
+type MealGenInput = {
+  people: number;
+  mealTime: "breakfast" | "lunch" | "dinner";
+  fridge: FridgeItemForAPI[];
+};
+
+// ----- Helpers -----
+const LS_KEY = "smp.fridge.v1";
+const MODAL_KEY = "smp.seen.sampleHint.v1";
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysUntil(dateISO: string): number {
+  const base = new Date(new Date().toDateString()).getTime(); // today 00:00
+  const tgt = new Date(dateISO + "T00:00:00").getTime();
+  return Math.ceil((tgt - base) / 86400000);
+}
+
+function getMealTime(): MealGenInput["mealTime"] {
+  const h = new Date().getHours();
+  if (h < 11) return "breakfast";
+  if (h < 16) return "lunch";
+  return "dinner";
+}
+
+function loadFridge(): Ingredient[] {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveFridge(items: Ingredient[]) {
+  localStorage.setItem(LS_KEY, JSON.stringify(items));
+}
+
+function randId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function badgeStyle(days: number): React.CSSProperties {
+  // 红：<=2 天；黄：<=5；绿：>5
+  const bg = days <= 2 ? "#FFF0F0" : days <= 5 ? "#FCEFC5" : "#E8F8EE";
+  const color = days <= 2 ? "#B91C1C" : days <= 5 ? "#92400E" : "#065F46";
+  const border =
+    days <= 2 ? "1px solid #FECACA" : days <= 5 ? "1px solid #FDE68A" : "1px solid #BBF7D0";
+  return {
+    background: bg,
+    color,
+    border,
+    fontSize: 12,
+    padding: "2px 8px",
+    borderRadius: 999,
+  };
+}
+
+// ----- Page Component -----
 export default function Home() {
+  // modal
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem(MODAL_KEY);
+      if (!seen) setShowHint(true);
+    } catch {}
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowHint(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  function closeHint(persist = true) {
+    if (persist) {
+      try {
+        localStorage.setItem(MODAL_KEY, "1");
+      } catch {}
+    }
+    setShowHint(false);
+  }
+
+  const [items, setItems] = useState<Ingredient[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // form state
+  const [name, setName] = useState("");
+  const [qty, setQty] = useState<number | "">("");
+  const [unit, setUnit] = useState("g");
+  const [category, setCategory] = useState<Ingredient["category"]>("Veggie");
+  const [expiry, setExpiry] = useState(todayISO());
+
+  // init from localStorage
+  useEffect(() => {
+    setItems(loadFridge());
+  }, []);
+
+  // derived sorted items (soonest expiry first)
+  const sorted = useMemo(
+    () => [...items].sort((a, b) => a.expiry.localeCompare(b.expiry)),
+    [items]
+  );
+
+  function addItem() {
+    if (!name.trim() || !qty || Number(qty) <= 0) return;
+    const newItem: Ingredient = {
+      id: randId(),
+      name: name.trim(),
+      qty: Number(qty),
+      unit,
+      category,
+      expiry,
+      addedOn: todayISO(),
+    };
+    const next = [newItem, ...items];
+    setItems(next);
+    saveFridge(next);
+    // reset form
+    setName("");
+    setQty("");
+    setUnit("g");
+    setCategory("Veggie");
+    setExpiry(todayISO());
+  }
+
+  function removeItem(id: string) {
+    const next = items.filter((i) => i.id !== id);
+    setItems(next);
+    saveFridge(next);
+  }
+
+  async function onGenerate() {
+    if (!items.length) {
+      alert("Please add at least one ingredient first.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const fridge: FridgeItemForAPI[] = items.map((i) => ({
+        id: i.id,
+        name: i.name,
+        qty: i.qty,
+        unit: i.unit,
+        category: i.category,
+        expiresInDays: daysUntil(i.expiry),
+      }));
+
+      const payload: MealGenInput = {
+        people: 1, // single user
+        mealTime: getMealTime(),
+        fridge,
+      };
+
+      const res = await fetch("/api/meal/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error("Generate failed");
+      const plan = await res.json();
+
+      localStorage.setItem("smp.lastPlan", JSON.stringify(plan));
+      window.location.href = "/meal";
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to generate meal. Check the API route or try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <main style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700 }}>Smart MealPlanet</h1>
-      <p>Home page is working 🎉</p>
-      <a href="/meal" style={{ display: "inline-block", marginTop: 12, padding: "8px 12px", background: "#16a34a", color: "#fff", borderRadius: 8, textDecoration: "none" }}>
-        Go to /meal
-      </a>
-    </main>
+    <div style={{ minHeight: "100vh", background: "#FFF7E1", display: "flex", flexDirection: "column" }}>
+      {/* top title */}
+      <header style={{ padding: "32px 0" }}>
+        <h1
+          style={{
+            textAlign: "center",
+            fontSize: "48px",
+            fontWeight: 900,
+            letterSpacing: "-0.02em",
+            color: "#3A7F3C",
+            textShadow: "0 1px 0 rgba(0,0,0,0.03)",
+          }}
+        >
+          Smart MealPlanet
+        </h1>
+      </header>
+
+      {/* main */}
+      <main
+        style={{
+          width: "100%",
+          maxWidth: 1120,
+          margin: "0 auto",
+          padding: "0 24px 48px",
+          display: "flex",
+          gap: 24,
+          flexWrap: "wrap",
+        }}
+      >
+        {/* left side: list */}
+        <section style={{ flex: "1 1 620px", minWidth: 320 }}>
+          <div
+            style={{
+              background: "rgba(255,255,255,0.9)",
+              WebkitBackdropFilter: "blur(6px)",
+              backdropFilter: "blur(6px)",
+              borderRadius: 24,
+              padding: 16,
+              border: "1px solid #CDE5C6",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+            }}
+          >
+            {/* list title */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <h2
+                style={{
+                  paddingLeft: "20px",
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: "#2F6E34",
+                }}
+              >
+                Your List of Food:
+              </h2>
+            </div>
+
+            {/* entering list */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 100px 1fr 1.2fr 1.2fr auto",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <input
+                placeholder="name (e.g., egg)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={{ padding: 8, borderRadius: 12, border: "1px solid #E5E7EB", outline: "none" }}
+              />
+              <input
+                placeholder="qty"
+                type="number"
+                min="0"
+                step="1"
+                value={qty}
+                onChange={(e) => setQty(e.target.value === "" ? "" : Number(e.target.value))}
+                style={{
+                  width: "80px",
+                  padding: 8,
+                  borderRadius: 12,
+                  border: "1px solid #E5E7EB",
+                  outline: "none",
+                }}
+              />
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                style={{ padding: 8, borderRadius: 12, border: "1px solid #E5E7EB" }}
+              >
+                <option>g</option>
+                <option>ml</option>
+                <option>pcs</option>
+                <option>bowl</option>
+                <option>cup</option>
+              </select>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as any)}
+                style={{ padding: 8, borderRadius: 12, border: "1px solid #E5E7EB" }}
+              >
+                <option value="Veggie">Veggie</option>
+                <option value="Protein">Protein</option>
+                <option value="Bakery">Bakery</option>
+                <option value="Dairy">Dairy</option>
+                <option value="Spice">Spice</option>
+                <option value="Other">Other</option>
+              </select>
+              <input
+                type="date"
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value)}
+                style={{ padding: 8, borderRadius: 12, border: "1px solid #E5E7EB" }}
+              />
+              <button
+                onClick={addItem}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 14,
+                  background: "#2563eb",
+                  color: "#fff",
+                  border: "none",
+                  fontWeight: 600,
+                }}
+              >
+                Add
+              </button>
+            </div>
+
+            {/* list */}
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, borderTop: "1px solid #E6F2E2" }}>
+              {sorted.map((i) => {
+                const d = daysUntil(i.expiry);
+                return (
+                  <li
+                    key={i.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "12px 4px",
+                      borderBottom: "1px solid #E6F2E2",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span
+                        style={{
+                          height: 10,
+                          width: 10,
+                          borderRadius: 999,
+                          background: d <= 2 ? "#ef4444" : d <= 5 ? "#f59e0b" : "#7BC67E",
+                          display: "inline-block",
+                        }}
+                      />
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 600, color: "#1F5123" }}>{i.name}</p>
+                        <p style={{ margin: 0, fontSize: 13, color: "rgba(31,81,35,0.7)" }}>
+                          {i.qty} {i.unit} · {i.category}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={badgeStyle(d)}>{d <= 0 ? "Today" : d === 1 ? "Tomorrow" : `In ${d} days`}</span>
+                      <button
+                        onClick={() => removeItem(i.id)}
+                        style={{
+                          background: "#ef4444",
+                          color: "#fff",
+                          border: "none",
+                          padding: "6px 10px",
+                          borderRadius: 12,
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
+                      >
+                        delete
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+              {sorted.length === 0 && (
+                <li style={{ color: "#6b7280", padding: "12px 4px" }}>No items yet. Add some above!</li>
+              )}
+            </ul>
+
+            {/* tip */}
+            <div style={{ marginTop: 8, fontSize: 12, color: "rgba(31,81,35,0.6)" }}>
+              Note: Food close to expiry will be used first in your meal plan!
+            </div>
+          </div>
+        </section>
+
+        {/* right side: cartoon fridge img */}
+        <aside style={{ flex: "1 1 380px", minWidth: 300, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div
+            style={{
+              position: "relative",
+              background: "rgba(255,255,255,0.9)",
+              borderRadius: 24,
+              padding: 16,
+              border: "1px solid #CDE5C6",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+              minHeight: 220,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 16 }}>
+              {/* cartoon */}
+              <div
+                style={{
+                  position: "relative",
+                  height: 144,
+                  width: 104,
+                  borderRadius: 16,
+                  background: "#E7F6E2",
+                  border: "2px solid #7BC67E",
+                  boxShadow: "inset 0 2px 6px rgba(0,0,0,0.06)",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    insetInlineStart: "50%",
+                    top: 0,
+                    bottom: 0,
+                    width: 1,
+                    background: "rgba(123,198,126,0.6)",
+                    transform: "translateX(-50%)",
+                  }}
+                />
+                {/* eyes */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 32,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    display: "flex",
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ height: 12, width: 12, background: "#2F6E34", borderRadius: 999 }} />
+                  <span style={{ height: 12, width: 12, background: "#2F6E34", borderRadius: 999 }} />
+                </div>
+                {/* smile */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 56,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    height: 4,
+                    width: 56,
+                    borderRadius: 999,
+                    background: "#2F6E34",
+                  }}
+                />
+                {/* handle */}
+                <div style={{ position: "absolute", right: 8, top: 36, height: 40, width: 6, background: "#7BC67E", borderRadius: 8 }} />
+                {/* feet */}
+                <div style={{ position: "absolute", bottom: -4, left: 16, height: 8, width: 24, background: "#7BC67E", borderRadius: 4 }} />
+                <div style={{ position: "absolute", bottom: -4, right: 16, height: 8, width: 24, background: "#7BC67E", borderRadius: 4 }} />
+              </div>
+
+              {/* bubble */}
+              <div style={{ position: "relative", flex: 1 }}>
+                <div
+                  style={{
+                    background: "#fff",
+                    border: "1px solid #CDE5C6",
+                    borderRadius: 16,
+                    padding: 12,
+                    color: "#1F5123",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                    lineHeight: 1.5,
+                    fontSize: 14,
+                  }}
+                >
+                  Hi! I’m your <b>Fridge Buddy</b>. Add new groceries anytime. When you’re
+                  hungry, click <b>Generate Plan</b> — I’ll use items that are about to expire first.
+                </div>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: -8,
+                    top: 36,
+                    width: 14,
+                    height: 14,
+                    background: "#fff",
+                    transform: "rotate(45deg)",
+                    borderLeft: "1px solid #CDE5C6",
+                    borderTop: "1px solid #CDE5C6",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* generate button */}
+          <div style={{ marginTop: "auto" }}>
+            <button
+              onClick={onGenerate}
+              disabled={loading || items.length === 0}
+              style={{
+                width: "100%",
+                padding: "20px 24px",
+                borderRadius: 999,
+                color: "#fff",
+                border: "none",
+                fontSize: 22,
+                fontWeight: 800,
+                boxShadow: "0 8px 20px rgba(58,127,60,0.35)",
+                background:
+                  loading || items.length === 0
+                    ? "#9ca3af"
+                    : "linear-gradient(180deg, #5AAE61 0%, #3A7F3C 100%)",
+                transform: "translateZ(0)",
+              }}
+            >
+              {loading ? "Generating..." : "Generate Plan"}
+            </button>
+          </div>
+        </aside>
+      </main>
+
+      {/* first-visit modal */}
+      {showHint && (
+        <div
+          onClick={() => closeHint()} // click backdrop to close
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 50,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()} // prevent closing when clicking the card
+            style={{
+              width: "min(520px, 92vw)",
+              background: "#fff",
+              borderRadius: 16,
+              padding: 20,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.2)",
+              border: "1px solid #E5E7EB",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+              <div
+                style={{
+                  height: 36,
+                  width: 36,
+                  borderRadius: 10,
+                  background: "#E7F6E2",
+                  border: "2px solid #7BC67E",
+                  display: "grid",
+                  placeItems: "center",
+                }}
+              >
+                <span style={{ fontSize: 18 }}>🥬</span>
+              </div>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1F5123" }}>Heads up!</h3>
+            </div>
+
+            <p style={{ marginTop: 6, marginBottom: 14, color: "#374151", lineHeight: 1.6 }}>
+              The items you see now are <b>just examples</b>. Feel free to <b>delete</b> anything and
+              <b> add</b> your own groceries. Your list is saved locally on this device.
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                onClick={() => closeHint(true)} // don’t show again
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "linear-gradient(180deg, #5AAE61 0%, #3A7F3C 100%)",
+                  color: "#fff",
+                  fontWeight: 800,
+                  boxShadow: "0 6px 18px rgba(58,127,60,0.25)",
+                }}
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
