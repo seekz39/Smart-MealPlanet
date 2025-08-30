@@ -202,14 +202,32 @@ export default function Home() {
     }
     setLoading(true);
     try {
-      const fridge: FridgeItemForAPI[] = items.map((i) => ({
+        // 1) 分颜色 + 同色内按到期更近优先
+        const bySoonest = (a: typeof items[number], b: typeof items[number]) =>
+        daysUntil(a.expiry) - daysUntil(b.expiry);
+
+        const reds    = items.filter(i => daysUntil(i.expiry) <= 2).sort(bySoonest);
+        const yellows = items.filter(i => {
+        const d = daysUntil(i.expiry);
+        return d > 2 && d <= 5;
+        }).sort(bySoonest);
+        const greens  = items.filter(i => daysUntil(i.expiry) > 5).sort(bySoonest);
+
+        // 2) 按优先级合并后取前 3 个
+        const prioritized = [...reds, ...yellows, ...greens].slice(0, 3);
+
+        localStorage.setItem("smp.lastPicked", JSON.stringify(prioritized.map(p => p.name)));
+
+        // 3) 构造发给后端的 fridge
+        const fridge: FridgeItemForAPI[] = prioritized.map(i => ({
         id: i.id,
         name: i.name,
         qty: i.qty,
         unit: i.unit,
         category: i.category,
         expiresInDays: daysUntil(i.expiry),
-      }));
+        }));
+
 
       const payload: MealGenInput = {
         people: 1,
@@ -537,7 +555,7 @@ export default function Home() {
 
             <p style={{ marginTop: 6, marginBottom: 14, color: "#374151", lineHeight: 1.6 }}>
               The items you see now are <b>just examples groceries</b> . Feel free to <b>delete</b> the examples and
-              <b> add</b> your own groceries. Your list is saved locally on your device.
+              <b> add</b> your own groceries and expiry dates. Your list is saved locally on your device.
             </p>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
