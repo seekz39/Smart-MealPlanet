@@ -1,0 +1,30 @@
+# deps
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# local runtime data (你的本地冰箱数据)
+data/
+
+# env files (只提交 .env.example)
+.env
+.env.*.local
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS & editors
+.DS_Store
+.vscode/
+.idea/
+
+# build/test artifacts
+dist/
+coverage/
+*.tsbuildinfo
