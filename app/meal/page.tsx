@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
+
+type Recipe = {
+  title: string;
+  description?: string;
+  steps: string[];
+  ingredientsUsed: Array<{ name: string; amount?: number; unit?: string }>;
+  ingredientsToBuy?: Array<{ name: string; amount?: number; unit?: string }>;
+};
 
 type Plan = {
   mealType: "breakfast" | "lunch" | "dinner" | "supper" | "snack";
   readyInMinutes: number;
   servings: number;
-  recipes: Array<{
-    title: string;
-    description?: string;
-    steps: string[];
-    ingredientsUsed: Array<{ name: string; amount?: number; unit?: string }>;
-    ingredientsToBuy?: Array<{ name: string; amount?: number; unit?: string }>;
-  }>;
+  recipes: Recipe[];
   _source?: "ai" | "rules";
   _error?: string;
 };
@@ -22,12 +25,29 @@ export default function MealPage() {
   const [picked, setPicked] = useState<string[]>([]);
 
   useEffect(() => {
+    // Load plan from localStorage. Supports both:
+    // 1) { ...plan, _source }    (old shape)
+    // 2) { source, plan }        (new route shape)
     try {
       const raw = localStorage.getItem("smp.lastPlan");
-      if (raw) setPlan(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && "plan" in parsed) {
+          const p = (parsed.plan ?? {}) as Plan;
+          // merge top-level source/error if present
+          p._source = parsed._source ?? parsed.source ?? p._source;
+          p._error = parsed._error ?? p._error;
+          setPlan(p);
+        } else {
+          setPlan(parsed as Plan);
+        }
+      } else {
+        setPlan(null);
+      }
     } catch {
       setPlan(null);
     }
+
     try {
       const p = localStorage.getItem("smp.lastPicked");
       if (p) setPicked(JSON.parse(p));
@@ -36,10 +56,22 @@ export default function MealPage() {
     }
   }, []);
 
+  // ---------- Empty state ----------
   if (!plan) {
     return (
       <main className="page">
-        <h1 className="title">Meal Plan</h1>
+        <div className="titleImgWrap">
+          <Image
+            src="/assets/plan_title.png"
+            alt="Smart MealPlanet — Meal Plan"
+            width={520}
+            height={140}
+            priority
+            className="titleImg"
+          />
+          <h1 className="srOnly">Meal Plan</h1>
+        </div>
+
         <p className="center">No plan found. Please go back to the home page and generate one.</p>
         <div className="center">
           <a href="/">← Back</a>
@@ -50,25 +82,34 @@ export default function MealPage() {
   }
 
   const r = plan.recipes?.[0];
-
-  // 没有 lastPicked 时，从 ingredientsUsed 里取前 3 个兜底
   const pickedToShow =
     picked.length > 0 ? picked.slice(0, 3) : (r?.ingredientsUsed ?? []).slice(0, 3).map((g) => g.name);
 
+  // ---------- Normal page ----------
   return (
     <main className="page">
-      {/* 顶部标题 */}
-      <h1 className="title">Meal Plan</h1>
+      {/* PNG Title */}
+      <div className="titleImgWrap">
+        <Image
+          src="/assets/plan_title.png"
+          alt="Smart MealPlanet — Meal Plan"
+          width={520}
+          height={140}
+          priority
+          className="titleImg"
+        />
+        <h1 className="srOnly">Meal Plan</h1>
+      </div>
 
-      {/* 元信息徽章（居中） */}
+      {/* Meta badges */}
       <div className="metaRow">
         <span className="badge">{plan.mealType}</span>
         <span className="badge">⏱ {plan.readyInMinutes} min</span>
         <span className="badge">🍽 {plan.servings} servings</span>
-        {plan._source && <span className="badge">{plan._source === "ai" ? "🤖 AI" : "⚙️ Rules"}</span>}
+        {/* {plan._source && <span className="badge">{plan._source === "ai" ? "🤖 AI" : "⚙️ Rules"}</span>} */}
       </div>
 
-      {/* 选中食材（英文 chips） */}
+      {/* Picked ingredients */}
       <div className="pickedCard">
         <p className="pickedTitle">
           <b>I picked the following ingredients from your fridge:</b>
@@ -86,14 +127,14 @@ export default function MealPage() {
         </div>
       </div>
 
-      {/* 食谱大白框：顶部 Steps（通栏），下面 Used / To buy 并排 */}
+      {/* Recipe content */}
       <section className="recipeShell">
         <div className="headerArea">
           <h2 className="recipeTitle">{r?.title ?? "Meal"}</h2>
           {r?.description && <p className="recipeDesc">{r.description}</p>}
         </div>
 
-        {/* 顶部通栏：Steps（浅蓝） */}
+        {/* Steps */}
         <div className="box stepsBox">
           <h3 className="boxTitle">Steps</h3>
           <ol className="stepsList">
@@ -105,7 +146,7 @@ export default function MealPage() {
           </ol>
         </div>
 
-        {/* 下方并排：Used（左，浅黄） | To buy（右，粉） */}
+        {/* Used / To buy */}
         <div className="duo">
           <div className="box usedBox">
             <h3 className="boxTitle">Used</h3>
@@ -139,7 +180,7 @@ export default function MealPage() {
         </div>
       </section>
 
-      {/* 操作区：贴着大白框底部，等宽，尺寸与首页一致 */}
+      {/* Actions */}
       <div className="actions">
         <a href="/" className="btn btnGhost">← Return</a>
         <button onClick={() => window.print()} className="btn btnPrimary">Print</button>
@@ -158,19 +199,31 @@ const styles = `
   min-height: 100vh;
   background: #FFF7E1;
   padding: 28px;
-  font-size: 18px;            /* 基础字号放大 */
+  font-size: 18px;
   line-height: 1.7;
 }
 
 .center { text-align: center; }
 
-.title {
-  color: #3A7F3C;
-  font-weight: 900;
-  margin: 0;
-  text-align: center;
-  letter-spacing: 0.3px;
-  font-size: 34px;            /* 更大标题 */
+/* PNG title styles */
+.titleImgWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 6px 0 8px;
+}
+.titleImg {
+  width: min(520px, 86vw);
+  height: auto;
+  filter: drop-shadow(0 1px 0 rgba(0,0,0,0.03));
+}
+/* Keep for a11y/SEO */
+.srOnly {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
 }
 
 .metaRow {
@@ -188,7 +241,7 @@ const styles = `
   color: #1F5123;
   padding: 8px 14px;
   border-radius: 999px;
-  font-size: 14px;            /* 放大徽章字体 */
+  font-size: 14px;
   font-weight: 800;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
@@ -206,7 +259,7 @@ const styles = `
   margin: 0 0 12px 0;
   color: #1F5123;
   text-align: center;
-  font-size: 18px;            /* 放大提示文字 */
+  font-size: 18px;
   font-weight: 800;
 }
 
@@ -232,7 +285,7 @@ const styles = `
   border: 1px solid #E5E7EB;
 }
 
-/* 食谱大白框 */
+/* Recipe shell */
 .recipeShell {
   background: rgba(255,255,255,.96);
   border: 1px solid #CDE5C6;
@@ -250,7 +303,7 @@ const styles = `
 
 .recipeTitle {
   margin: 0;
-  font-size: 24px;            /* 放大标题 */
+  font-size: 24px;
   color: #1F5123;
   font-weight: 900;
 }
@@ -259,37 +312,37 @@ const styles = `
   color: #374151;
   line-height: 1.7;
   max-width: 70ch;
-  font-size: 18px;            /* 放大描述 */
+  font-size: 18px;
 }
 
-/* 统一小框样式 */
+/* Shared box */
 .box {
   border-radius: 16px;
   padding: 16px;
   border: 1px solid transparent;
 }
 
-/* 浅蓝 Steps */
+/* Steps (blue) */
 .stepsBox {
   background: #E6F3FF;
   border-color: #CDE5FF;
   margin-bottom: 16px;
 }
 
-/* duo：Used/To buy 并排（左/右） */
+/* Two columns */
 .duo {
   display: grid;
-  grid-template-columns: 1fr 1fr;   /* 并排 */
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
 
-/* 浅黄 Used（左） */
+/* Used (yellow) */
 .usedBox {
   background: #FFF6D9;
   border-color: #FFE9A8;
 }
 
-/* 粉色 To buy（右） */
+/* To buy (pink) */
 .buyBox {
   background: #FFE6EC;
   border-color: #FFCCD6;
@@ -299,15 +352,15 @@ const styles = `
   margin: 0 0 10px 0;
   color: #1F2937;
   font-weight: 900;
-  font-size: 20px;            /* 放大段标题 */
+  font-size: 20px;
   letter-spacing: .2px;
 }
 
-/* Steps 列表 */
+/* Steps list */
 .stepsList {
   margin: 0;
   padding-left: 24px;
-  font-size: 18px;            /* 放大步骤字体 */
+  font-size: 18px;
 }
 .stepItem {
   margin: 10px 0;
@@ -315,12 +368,12 @@ const styles = `
   color: #111827;
 }
 
-/* Ingredients 列表 */
+/* Ingredients */
 .ingredientsList {
   list-style: none;
   padding: 0;
   margin: 0;
-  font-size: 18px;            /* 放大食材字体 */
+  font-size: 18px;
 }
 .ingredientRow {
   display: flex;
@@ -344,13 +397,13 @@ const styles = `
   color: #6B7280;
 }
 
-/* 小屏：Used/To buy 自动堆叠 */
+/* Stack on small screens */
 @media (max-width: 820px) {
   .duo { grid-template-columns: 1fr; }
   .stepsList { padding-left: 22px; }
 }
 
-/* 操作区：与大白框等宽，按钮尺寸与首页一致 */
+/* Action buttons */
 .actions {
   max-width: var(--shell-max);
   margin: 16px auto 0;
@@ -361,11 +414,11 @@ const styles = `
 
 .btn {
   flex: 1;
-  padding: 20px 24px;                 /* 与首页一致 */
+  padding: 20px 24px;
   border-radius: 999px;
   text-align: center;
   font-weight: 800;
-  font-size: 22px;                    /* 与首页一致：放大 */
+  font-size: 22px;
   cursor: pointer;
   user-select: none;
   box-shadow: 0 8px 20px rgba(58,127,60,0.15);
